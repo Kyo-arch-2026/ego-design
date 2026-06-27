@@ -54,3 +54,10 @@ E.G.Oは4つの層で構成される。
 ## データの状態遷移
 
 正本は直接上書きせず、状態を遷移させる。
+```
+candidate（候補） → active（有効） → superseded（置換済）
+
+↓
+
+invalid / archived
+```
