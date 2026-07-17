@@ -30,10 +30,12 @@ AIが答えを出すのではなく、人間が最終判断する構造。
 | 00 | [Origin Story](docs/00-origin-story.md) | なぜ作ったか |
 | 01 | [Philosophy](docs/01-philosophy.md) | 4つの設計原則 |
 | 02 | [Architecture](docs/02-architecture.md) | システム設計 |
+| 03 | [Data Design](docs/03-data-design.md) | データ設計の核心 |
 | 04 | [External Tools](docs/04-external-tools.md) | 外部ツール選定 |
-| 05 | [機能分解書](docs/05-function-breakdown.md) | 機能の階層的分解 |
-| 06 | [基本設計書](docs/06-basic-design.md) | システム全体の基本設計 |
-| 07 | [詳細設計書](docs/07-detailed-design.md) | モジュール・データ・IFの詳細 |
+| 05 | [Function Breakdown](docs/05-function-breakdown.md) | 機能の階層的分解 |
+| 06 | [Basic Design](docs/06-basic-design.md) | システム全体の基本設計 |
+| 07 | [Detailed Design](docs/07-detailed-design.md) | モジュール・データ・IFの詳細 |
+
 
 
 ## 現在のフェーズ
