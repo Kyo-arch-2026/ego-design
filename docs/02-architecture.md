@@ -81,11 +81,13 @@ invalid / archived
 
 ## Phase 1.0での実装範囲
 
-現在の最小実装で動くもの：
+Phase 1.0で実装する範囲（設計確定・実装着手前）：
+
 - 思考の構造化
 - 承認フロー（candidate → active）
 - 正本管理（SQLiteで代替）
 - 監査ログ
+
 
 将来のPhaseで実装：
 - PostgreSQL + pgvectorへの移行（Phase 1.5）
@@ -94,3 +96,4 @@ invalid / archived
 - AIの解釈過程の可視化（Phase 1.5以降の課題）
 
 Phase 1.0は「思想が機能するか」の検証を目的とする。
+なお本リポジトリは現在、設計フェーズにある。上記はPhase 1.0で最初に実装する範囲であり、コードによる実装はこれからである。
