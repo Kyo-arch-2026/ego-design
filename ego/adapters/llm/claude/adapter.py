@@ -72,16 +72,20 @@ class ClaudeLLMAdapter(LLMPort):
     # ---- HTTP 層(テストではここをモックする) ----
 
     def _post(self, payload: dict) -> dict:
-        request = urllib.request.Request(
-            self._endpoint,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "content-type": "application/json",
-                "x-api-key": self._api_key,
-                "anthropic-version": "2023-06-01",
-            },
-            method="POST",
-        )
+        try:
+            request = urllib.request.Request(
+                self._endpoint,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "content-type": "application/json",
+                    "x-api-key": self._api_key,
+                    "anthropic-version": "2023-06-01",
+                },
+                method="POST",
+            )
+        except ValueError as exc:
+            # 接続先指定の不正も技術例外を素通しさせない(規約2)
+            raise LlmError(f"LLM 接続先の指定が不正です: {exc}") from exc
         with urllib.request.urlopen(request, timeout=self._timeout) as response:
             raw = response.read()
         try:

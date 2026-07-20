@@ -196,16 +196,31 @@ def test_it_07_audit_consistency(app, db_path):
 
 
 def test_it_08_di_swap(tmp_path, fake_llm):
-    """IT-08(規約4・5): 設定でストアアダプタの実体を切り替えても Core 無改修で成立。"""
-    for db in (str(tmp_path / "store_a.db"), str(tmp_path / "store_b.db")):
-        app = build_app(config=AppConfig(db_path=db), llm=FakeLLM())
+    """IT-08(規約4・5): ストアアダプタを差し替えても Core 無改修で成立。
+
+    (a) 設定(AppConfig)で SQLite アダプタの実体(DB ファイル)を切り替え
+    (b) Store Port の別実装(インメモリの MemoryStore)へ丸ごと差し替え
+    のいずれでも、同一の Core コードで記録→承認→参照が成立することを検証。
+    """
+    from tests.conftest import MemoryStore
+
+    stores = {
+        "sqlite_a": None,  # 設定経由で構築(build_store が担う)
+        "sqlite_b": None,
+        "memory": MemoryStore(),  # Store Port の別実装を直接注入
+    }
+    for name, injected in stores.items():
+        config = AppConfig(db_path=str(tmp_path / f"{name}.db"))
+        app = build_app(config=config, store=injected, llm=FakeLLM())
         fact = drive(app, ["record", "差し替えテスト"])
         drive(app, ["approve", fact.id])
         assert {f.id for f in app.store.find_active()} == {fact.id}
 
-    # 2 つの DB は独立している(注入されたアダプタが異なる実体である証拠)
-    assert count(str(tmp_path / "store_a.db"), "canonical_facts") == 1
-    assert count(str(tmp_path / "store_b.db"), "canonical_facts") == 1
+    # SQLite の 2 DB は独立している(注入されたアダプタが異なる実体である証拠)
+    assert count(str(tmp_path / "sqlite_a.db"), "canonical_facts") == 1
+    assert count(str(tmp_path / "sqlite_b.db"), "canonical_facts") == 1
+    # MemoryStore 側にも同一フローの結果が残っている(別実装でも Core 無改修)
+    assert len(stores["memory"].canonical) == 1
 
 
 def test_it_09_llm_failure_propagation(db_path):
