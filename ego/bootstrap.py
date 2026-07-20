@@ -8,7 +8,8 @@
     EGO_DB_PATH        SQLite の DB ファイルパス(既定: ~/.ego/ego.db)
     EGO_STORE_ADAPTER  ストレージアダプタ名(既定: sqlite)
     EGO_INPUT_ADAPTER  入力アダプタ名(既定: cli)
-    EGO_LLM_ADAPTER    LLM アダプタ名(既定: claude)
+    EGO_LLM_ADAPTER    LLM アダプタ名(claude | codex。既定: claude。
+                       codex は Codex CLI 経由の OpenAI 系代替=テスト用途)
     EGO_LLM_MODEL      LLM モデル名
     EGO_LLM_ENDPOINT   LLM API エンドポイント(試験用の差し替え可)
     ANTHROPIC_API_KEY  Claude API キー(リポジトリに含めず環境変数で注入)
@@ -22,6 +23,7 @@ from pathlib import Path
 
 from ego.adapters.input.cli import CliInputAdapter
 from ego.adapters.llm.claude import ClaudeLLMAdapter
+from ego.adapters.llm.codex_cli import CodexCliLLMAdapter
 from ego.adapters.store.sqlite import SQLiteStoreAdapter
 from ego.core.approval import ApprovalFlow
 from ego.core.audit import AuditLog
@@ -95,6 +97,11 @@ def build_llm(config: AppConfig) -> LLMPort:
         if config.llm_endpoint:
             kwargs["endpoint"] = config.llm_endpoint
         return ClaudeLLMAdapter(**kwargs)
+    if config.llm_adapter == "codex":
+        # EGO_LLM_MODEL の既定値は Claude 用のため、Claude 系の名前は
+        # Codex CLI に渡さず、CLI 側の既定モデルに任せる
+        model = None if config.llm_model.startswith("claude") else config.llm_model
+        return CodexCliLLMAdapter(model=model)
     raise ValueError(f"未知の LLM アダプタです: {config.llm_adapter}")
 
 

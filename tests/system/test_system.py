@@ -2,18 +2,23 @@
 
 - 駆動: CLI コマンド実行(`ego …` 相当をサブプロセスで実行)
 - ストレージ: 実 SQLite アダプタ + 本番相当 DB ファイル
-- LLM: 実 Claude アダプタ。判定は LLM 生成文言に依存させず、
+- LLM: 実 LLM アダプタ。判定は LLM 生成文言に依存させず、
   状態・件数・ID・監査ログなど決定的要素のみで行う。
 
-実 Claude を要するケース(ST-01〜06・10・11)は ANTHROPIC_API_KEY 未設定時 skip。
+実 LLM を要するケース(ST-01〜06・10・11)の構成は次の優先順で選ぶ:
+  1. ANTHROPIC_API_KEY があれば実 Claude アダプタ(仕様書 1.3 の本来構成)
+  2. なければ Codex CLI 経由の OpenAI 系アダプタ(EGO_LLM_ADAPTER=codex。
+     2026-07-20 使用者承認による代替構成。実 Claude 構成での再実施は残課題)
+  3. どちらも使えなければ skip
 ST-07・08(エラー表示)と ST-09(LLM 障害)は LLM 呼び出し前に完結する、
-または障害注入(到達不能エンドポイント)のため、キーなしで実行できる。
+または障害注入(到達不能エンドポイント)のため、実 LLM なしで実行できる。
 """
 
 from __future__ import annotations
 
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -22,9 +27,15 @@ import pytest
 
 pytestmark = pytest.mark.system
 
-_HAS_KEY = bool(os.environ.get("ANTHROPIC_API_KEY"))
+if os.environ.get("ANTHROPIC_API_KEY"):
+    _REAL_LLM_ENV: dict | None = {}  # 既定の実 Claude 構成
+elif shutil.which("codex"):
+    _REAL_LLM_ENV = {"EGO_LLM_ADAPTER": "codex"}  # 承認済みの代替構成
+else:
+    _REAL_LLM_ENV = None
 needs_real_llm = pytest.mark.skipif(
-    not _HAS_KEY, reason="実 Claude アダプタ構成のため ANTHROPIC_API_KEY が必要"
+    _REAL_LLM_ENV is None,
+    reason="実 LLM 構成(ANTHROPIC_API_KEY または Codex CLI)が必要",
 )
 
 
@@ -38,7 +49,7 @@ def run_ego(db_path: str, *args: str, extra_env: dict | None = None):
         capture_output=True,
         text=True,
         env=env,
-        timeout=120,
+        timeout=420,  # Codex CLI 構成では LLM 呼び出しに時間がかかるため余裕を持つ
     )
 
 
@@ -109,7 +120,9 @@ def test_st_full_scenario(db_path):
     判定は件数・ID・状態・監査ログのみ(LLM 文言には依存しない)。
     """
     # ST-01(UC-1): record → candidate 生成
-    result = run_ego(db_path, "record", "リレコドス計画の初期方針を A 案とする")
+    result = run_ego(
+        db_path, "record", "リレコドス計画の初期方針を A 案とする", extra_env=_REAL_LLM_ENV
+    )
     assert result.returncode == 0, result.stderr
     first_id = extract_id(result.stdout)
     assert query(db_path, "SELECT COUNT(*) FROM fact_revisions WHERE status='candidate'") == [(1,)]
@@ -122,7 +135,7 @@ def test_st_full_scenario(db_path):
     assert query(db_path, "SELECT COUNT(*) FROM canonical_facts WHERE status='active'") == [(1,)]
 
     # ST-03: reject → 正本化されない
-    result = run_ego(db_path, "record", "リレコドス計画を中止する案")
+    result = run_ego(db_path, "record", "リレコドス計画を中止する案", extra_env=_REAL_LLM_ENV)
     assert result.returncode == 0, result.stderr
     reject_id = extract_id(result.stdout)
     result = run_ego(db_path, "reject", reject_id)
@@ -135,7 +148,14 @@ def test_st_full_scenario(db_path):
     assert query(db_path, "SELECT COUNT(*) FROM canonical_facts") == [(1,)]
 
     # ST-04: record --revises → 承認で置換
-    result = run_ego(db_path, "record", "リレコドス計画の方針を B 案に変更する", "--revises", first_id)
+    result = run_ego(
+        db_path,
+        "record",
+        "リレコドス計画の方針を B 案に変更する",
+        "--revises",
+        first_id,
+        extra_env=_REAL_LLM_ENV,
+    )
     assert result.returncode == 0, result.stderr
     second_id = extract_id(result.stdout)
     result = run_ego(db_path, "approve", second_id)
