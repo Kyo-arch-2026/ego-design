@@ -1,0 +1,25 @@
+[project]
+name = "ego"
+version = "0.1.0"
+description = "E.G.O — 個人用AI基盤 Phase 1.0(CLI / Claude / SQLite)"
+requires-python = ">=3.10"
+authors = [{ name = "石井恭平" }]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+ego = "ego.adapters.input.cli.main:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ego*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "system: システムテスト(実 Claude アダプタ構成。ANTHROPIC_API_KEY が必要なものは skip 制御)",
+]
