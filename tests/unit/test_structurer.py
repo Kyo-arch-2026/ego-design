@@ -46,6 +46,15 @@ def test_ut_st_03_empty_input_rejected_before_llm(core, memory_store, fake_llm, 
     assert memory_store.revisions == []
 
 
+def test_invalid_revises_rejected_before_llm(core, memory_store, fake_llm):
+    """レビュー指摘対応: 無効な --revises は LLM を呼ぶ前に E_INPUT。原文も残さない。"""
+    with pytest.raises(InputError) as excinfo:
+        core.structurer.record("置換のつもりの記録", revises_fact_id="no-such-active")
+    assert excinfo.value.code == "E_INPUT"
+    assert fake_llm.calls == []
+    assert memory_store.raw_texts == {}
+
+
 def test_ut_st_04_llm_failure_keeps_raw_text(memory_store):
     """UT-ST-04: LLM が E_LLM を返しても原文は保存済み。candidate は未生成。"""
     from ego.bootstrap import AppConfig, build_app

@@ -50,8 +50,10 @@ class MemoryStore(StorePort):
 
     # ---- 候補・正本 ----
 
-    def save_candidate(self, fact: Fact) -> None:
+    def save_candidate(self, fact: Fact, audit: AuditEvent | None = None) -> None:
         self.calls.append(("save_candidate", fact.id))
+        if audit is not None:
+            self.audits.append(audit)
         self.revisions.append(
             Revision(
                 revision_id=new_id(),
@@ -85,9 +87,11 @@ class MemoryStore(StorePort):
             raise StoreError(f"candidate が見つかりません: {fact_id}")
         return revs[-1]
 
-    def promote_to_active(self, fact_id: str) -> Fact:
+    def promote_to_active(self, fact_id: str, audit: AuditEvent | None = None) -> Fact:
         self.calls.append(("promote_to_active", fact_id))
         rev = self._latest_candidate(fact_id)
+        if audit is not None:
+            self.audits.append(audit)
         now = utc_now()
         fact = Fact(
             id=rev.fact_id,
@@ -105,9 +109,16 @@ class MemoryStore(StorePort):
         self.canonical[fact.id] = fact
         return fact
 
-    def mark_rejected(self, fact_id: str, reason: str | None = None) -> None:
+    def mark_rejected(
+        self,
+        fact_id: str,
+        reason: str | None = None,
+        audit: AuditEvent | None = None,
+    ) -> None:
         self.calls.append(("mark_rejected", fact_id))
         rev = self._latest_candidate(fact_id)
+        if audit is not None:
+            self.audits.append(audit)
         self.revisions.append(
             Revision(
                 revision_id=new_id(),
@@ -122,11 +133,17 @@ class MemoryStore(StorePort):
             )
         )
 
-    def supersede(self, old_fact_id: str, new_fact: Fact) -> None:
+    def supersede(
+        self,
+        old_fact_id: str,
+        new_fact: Fact,
+        audits: list[AuditEvent] | None = None,
+    ) -> None:
         self.calls.append(("supersede", old_fact_id, new_fact.id))
         old = self.canonical.get(old_fact_id)
         if old is None:
             raise StoreError(f"置換対象の正本が存在しません: {old_fact_id}")
+        self.audits.extend(audits or [])
         self.revisions.append(
             Revision(
                 revision_id=new_id(),

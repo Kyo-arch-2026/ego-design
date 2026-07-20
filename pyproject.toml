@@ -5,6 +5,9 @@ description = "E.G.O — 個人用AI基盤 Phase 1.0(CLI / Claude / SQLite)"
 requires-python = ">=3.10"
 authors = [{ name = "石井恭平" }]
 
+[project.optional-dependencies]
+dev = ["pytest"]
+
 [project.scripts]
 ego = "ego.adapters.input.cli.main:main"
 

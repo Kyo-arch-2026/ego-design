@@ -66,6 +66,21 @@ def test_ut_llm_02_timeout_retried_then_e_llm(monkeypatch):
     assert not isinstance(excinfo.value, urllib.error.URLError)
 
 
+def test_ut_llm_02c_http_200_with_broken_body_is_e_llm(monkeypatch):
+    """レビュー指摘対応: 200 応答でも本文が JSON でない場合は E_LLM(素通しなし)。"""
+
+    @contextmanager
+    def broken_urlopen(request, timeout=None):
+        yield io.BytesIO(b"<html>Service temporarily broken</html>")
+
+    monkeypatch.setattr(urllib.request, "urlopen", broken_urlopen)
+    adapter = ClaudeLLMAdapter(api_key="test-key")
+
+    with pytest.raises(LlmError) as excinfo:
+        adapter.structure("壊れた応答のケース")
+    assert excinfo.value.code == "E_LLM"
+
+
 def test_ut_llm_02b_missing_api_key_is_e_llm():
     """API キー未設定も技術詳細を漏らさず E_LLM。"""
     adapter = ClaudeLLMAdapter(api_key=None)

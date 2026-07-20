@@ -2,12 +2,18 @@
 
 正本と履歴を分離管理し、状態遷移として履歴を残す。
 永続化は Store Port のみに依存し、SQLite・SQL 文字列を直接扱わない(規約1・2)。
+
+状態を変える操作(登録・承認・却下・置換)の監査イベントは Store Port に
+渡し、状態変更と不可分に記録させる(監査だけ欠けた正本・正本だけ欠けた
+監査を残さないため)。状態を変えない監査(遷移拒否の記録)のみ Audit Log
+サービス経由で単独追記する。
 """
 
 from ego.core.domain import (
     ACTIVE,
     CANDIDATE,
     PHASE_1_0_TRANSITIONS,
+    AuditEvent,
     Fact,
     Revision,
     new_id,
@@ -34,6 +40,18 @@ class SourceOfTruth:
             return None
         return revisions[-1].status
 
+    def ensure_replaceable(self, fact_id: str) -> None:
+        """--revises の対象が置換可能(正本に存在)かを検証する。
+
+        構造化(LLM 呼び出し)より前に検証することで、無効な指定での
+        無駄な LLM 呼び出しと孤立した原文の発生を防ぐ。
+        """
+        if self._store.get_active(fact_id) is None:
+            raise InputError(
+                f"--revises で指定されたカードが active に存在しません: {fact_id}",
+                hint="ego ask で現在の正本カードの ID を確認してください",
+            )
+
     # ---- candidate 登録(C-1-2, B-6) ----
 
     def register_candidate(
@@ -44,11 +62,7 @@ class SourceOfTruth:
         tags: list[str] | None = None,
     ) -> Fact:
         if revises_fact_id is not None:
-            if self._store.get_active(revises_fact_id) is None:
-                raise InputError(
-                    f"--revises で指定されたカードが active に存在しません: {revises_fact_id}",
-                    hint="ego ask で現在の正本カードの ID を確認してください",
-                )
+            self.ensure_replaceable(revises_fact_id)
         now = utc_now()
         fact = Fact(
             id=new_id(),
@@ -61,8 +75,9 @@ class SourceOfTruth:
             created_at=now,
             updated_at=now,
         )
-        self._store.save_candidate(fact)
-        self._audit.record("register", fact.id, actor="system")
+        self._store.save_candidate(
+            fact, audit=self._event("register", fact.id, actor="system")
+        )
         return fact
 
     # ---- 承認(C-2-1)・置換(C-2-2) ----
@@ -76,25 +91,35 @@ class SourceOfTruth:
                     f"置換対象のカードが active ではありません: {candidate.revises_fact_id}"
                 )
             new_fact = self._fact_from_revision(candidate)
-            self._store.supersede(old.id, new_fact)
-            self._audit.record(
-                "transition",
+            self._store.supersede(
                 old.id,
-                actor=actor,
-                detail={"from": "active", "to": "superseded", "superseded_by": new_fact.id},
+                new_fact,
+                audits=[
+                    self._event(
+                        "transition",
+                        old.id,
+                        actor=actor,
+                        detail={
+                            "from": "active",
+                            "to": "superseded",
+                            "superseded_by": new_fact.id,
+                        },
+                    ),
+                    self._event("approve", new_fact.id, actor=actor),
+                ],
             )
-            self._audit.record("approve", new_fact.id, actor=actor)
             return new_fact
-        fact = self._store.promote_to_active(fact_id)
-        self._audit.record("approve", fact.id, actor=actor)
-        return fact
+        return self._store.promote_to_active(
+            fact_id, audit=self._event("approve", fact_id, actor=actor)
+        )
 
     # ---- 却下(C-2-7) ----
 
     def reject(self, fact_id: str, actor: str = "human", reason: str | None = None) -> None:
         self._require_transition(fact_id, "reject", actor)
-        self._store.mark_rejected(fact_id, reason)
-        self._audit.record("reject", fact_id, actor=actor)
+        self._store.mark_rejected(
+            fact_id, reason, audit=self._event("reject", fact_id, actor=actor)
+        )
 
     # ---- 履歴(UC-4) ----
 
@@ -108,6 +133,19 @@ class SourceOfTruth:
 
     # ---- 内部 ----
 
+    @staticmethod
+    def _event(
+        event_type: str, target_id: str, actor: str, detail: dict | None = None
+    ) -> AuditEvent:
+        return AuditEvent(
+            log_id=new_id(),
+            event_type=event_type,
+            target_id=target_id,
+            actor=actor,
+            detail=detail,
+            created_at=utc_now(),
+        )
+
     def _require_transition(self, fact_id: str, event: str, actor: str) -> Revision:
         """遷移表(4.2)にある遷移かを検査し、candidate の最新改訂を返す。
 
@@ -118,6 +156,7 @@ class SourceOfTruth:
         if status is None:
             raise ApprovalError(f"該当する candidate がありません: {fact_id}")
         if (status, event) not in PHASE_1_0_TRANSITIONS:
+            # 状態を変えない単独の監査記録のため Audit Log サービス経由でよい
             self._audit.record(
                 "transition",
                 fact_id,

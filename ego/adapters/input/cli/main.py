@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import sys
 
-from ego.adapters.input.cli.parser import CliInputAdapter
-from ego.bootstrap import App, build_app
+from ego.bootstrap import App, AppConfig, build_app, build_input
 from ego.core.domain import Fact, InputMessage
 from ego.core.errors import EgoError
 
@@ -79,8 +78,9 @@ def _dispatch(app: App, message: InputMessage) -> None:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     try:
-        message = CliInputAdapter(argv).receive()
-        app = build_app()
+        config = AppConfig.from_env()
+        message = build_input(config, argv).receive()  # 注入は構成ルート経由(規約5)
+        app = build_app(config)
         _dispatch(app, message)
         return 0
     except EgoError as exc:

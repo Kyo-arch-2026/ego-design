@@ -7,6 +7,7 @@
 環境変数:
     EGO_DB_PATH        SQLite の DB ファイルパス(既定: ~/.ego/ego.db)
     EGO_STORE_ADAPTER  ストレージアダプタ名(既定: sqlite)
+    EGO_INPUT_ADAPTER  入力アダプタ名(既定: cli)
     EGO_LLM_ADAPTER    LLM アダプタ名(既定: claude)
     EGO_LLM_MODEL      LLM モデル名
     EGO_LLM_ENDPOINT   LLM API エンドポイント(試験用の差し替え可)
@@ -19,6 +20,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ego.adapters.input.cli import CliInputAdapter
 from ego.adapters.llm.claude import ClaudeLLMAdapter
 from ego.adapters.store.sqlite import SQLiteStoreAdapter
 from ego.core.approval import ApprovalFlow
@@ -26,6 +28,7 @@ from ego.core.audit import AuditLog
 from ego.core.session import SessionManager
 from ego.core.sot import SourceOfTruth
 from ego.core.structurer import ThoughtStructurer
+from ego.ports.input_port import InputPort
 from ego.ports.llm_port import LLMPort
 from ego.ports.store_port import StorePort
 
@@ -36,6 +39,7 @@ _DEFAULT_DB_PATH = "~/.ego/ego.db"
 class AppConfig:
     store_adapter: str = "sqlite"
     db_path: str = _DEFAULT_DB_PATH
+    input_adapter: str = "cli"
     llm_adapter: str = "claude"
     llm_model: str = "claude-sonnet-5"
     llm_endpoint: str | None = None
@@ -46,6 +50,7 @@ class AppConfig:
         return cls(
             store_adapter=os.environ.get("EGO_STORE_ADAPTER", "sqlite"),
             db_path=os.environ.get("EGO_DB_PATH", _DEFAULT_DB_PATH),
+            input_adapter=os.environ.get("EGO_INPUT_ADAPTER", "cli"),
             llm_adapter=os.environ.get("EGO_LLM_ADAPTER", "claude"),
             llm_model=os.environ.get("EGO_LLM_MODEL", "claude-sonnet-5"),
             llm_endpoint=os.environ.get("EGO_LLM_ENDPOINT"),
@@ -71,6 +76,17 @@ def build_store(config: AppConfig) -> StorePort:
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         return SQLiteStoreAdapter(db_path)
     raise ValueError(f"未知のストレージアダプタです: {config.store_adapter}")
+
+
+def build_input(config: AppConfig, source) -> InputPort:
+    """入力アダプタを構成する(規約5: 入力方式の選択もここ一箇所)。
+
+    source は入力元の生データ(CLI なら argv)。アダプタが InputMessage へ
+    正規化する。
+    """
+    if config.input_adapter == "cli":
+        return CliInputAdapter(source)
+    raise ValueError(f"未知の入力アダプタです: {config.input_adapter}")
 
 
 def build_llm(config: AppConfig) -> LLMPort:

@@ -169,3 +169,46 @@ def test_ut_sp_07_rollback_leaves_no_partial_state(store):
     # ロールバックにより旧正本は active のまま、superseded 履歴も残っていない
     assert store.get_active(old.id) is not None
     assert all(r.status != SUPERSEDED for r in store.get_revisions(old.id))
+
+
+def test_audit_is_atomic_with_state_change(store):
+    """レビュー指摘対応: 状態変更と監査記録は不可分(片方だけ成功しない)。"""
+    # 成功時: promote と同時に渡した監査イベントが記録されている
+    fact = make_candidate()
+    approve_event = AuditEvent(
+        log_id=new_id(), event_type="approve", target_id=fact.id, actor="human"
+    )
+    store.save_candidate(
+        fact,
+        audit=AuditEvent(
+            log_id=new_id(), event_type="register", target_id=fact.id, actor="system"
+        ),
+    )
+    store.promote_to_active(fact.id, audit=approve_event)
+    assert [e.event_type for e in store.get_audit_events(fact.id)] == [
+        "register",
+        "approve",
+    ]
+
+    # 失敗時: supersede が失敗したら、渡した監査イベントも一切記録されない
+    other = make_candidate("別の正本")
+    store.save_candidate(other)
+    store.promote_to_active(other.id)
+
+    conflicting = make_candidate("衝突する新判断")
+    conflicting.id = other.id  # 主キー衝突で失敗させる
+    conflicting.status = ACTIVE
+    doomed_events = [
+        AuditEvent(
+            log_id=new_id(), event_type="transition", target_id=fact.id, actor="human"
+        ),
+        AuditEvent(
+            log_id=new_id(), event_type="approve", target_id=conflicting.id, actor="human"
+        ),
+    ]
+    with pytest.raises(StoreError):
+        store.supersede(fact.id, conflicting, audits=doomed_events)
+
+    recorded_ids = {e.log_id for e in store.get_audit_events()}
+    assert not recorded_ids & {e.log_id for e in doomed_events}
+    assert store.get_active(fact.id) is not None  # 状態も不変

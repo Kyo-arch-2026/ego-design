@@ -26,11 +26,13 @@ class ThoughtStructurer:
     ) -> Fact:
         """自由記述を構造化して candidate として登録し、candidate の Fact を返す。
 
-        1. 空入力は LLM を呼ばずに E_INPUT(UT-ST-03)。
+        1. 空入力・無効な --revises 指定は LLM を呼ぶ前に E_INPUT(UT-ST-03)。
         2. 原文を先に保存する。LLM が失敗(E_LLM)しても原文は残る(UT-ST-04)。
         """
         if text is None or not text.strip():
             raise InputError("入力が空です", hint="ego record <自由記述> の形式で入力してください")
+        if revises_fact_id is not None:
+            self._sot.ensure_replaceable(revises_fact_id)
 
         raw = RawText(id=new_id(), body=text, created_at=utc_now())
         self._store.save_raw_text(raw)

@@ -5,9 +5,10 @@ SQL・接続・カーソル等の技術語彙が登場したら規約違反。
 SQLite アダプタはこのシグネチャを SQLite で実装し、PostgreSQL アダプタは
 同じシグネチャを PostgreSQL で実装する。Core から見た口は同一。
 
-技術固有の例外はアダプタ内で捕捉し StoreError(E_STORE)に変換する。
-書き込み失敗時はトランザクションをロールバックし、正本と履歴の
-不整合(中途半端な状態)を残さない。
+- 技術固有の例外はアダプタ内で捕捉し StoreError(E_STORE)に変換する。
+- 変更系メソッドが audit を受け取った場合、状態の変更と監査の記録は
+  不可分に行う(片方だけ成功した状態を残さない)。失敗時は変更全体を
+  取り消し、正本・履歴・監査の不整合を残さない(詳細設計書 6.1)。
 """
 
 from abc import ABC, abstractmethod
@@ -26,8 +27,8 @@ class StorePort(ABC):
     # ---- 候補・正本(C-1, C-2) ----
 
     @abstractmethod
-    def save_candidate(self, fact: Fact) -> None:
-        """candidate を履歴に追記する。"""
+    def save_candidate(self, fact: Fact, audit: AuditEvent | None = None) -> None:
+        """candidate を履歴に追記する(audit 指定時は監査記録も不可分に行う)。"""
         raise NotImplementedError
 
     @abstractmethod
@@ -36,20 +37,30 @@ class StorePort(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def promote_to_active(self, fact_id: str) -> Fact:
-        """candidate を正本(active)へ昇格する。"""
+    def promote_to_active(self, fact_id: str, audit: AuditEvent | None = None) -> Fact:
+        """candidate を正本(active)へ昇格する(audit 指定時は監査記録も不可分)。"""
         raise NotImplementedError
 
     @abstractmethod
-    def mark_rejected(self, fact_id: str, reason: str | None = None) -> None:
+    def mark_rejected(
+        self,
+        fact_id: str,
+        reason: str | None = None,
+        audit: AuditEvent | None = None,
+    ) -> None:
         """candidate の却下を履歴に追記する(C-2-7。正本には入れない)。"""
         raise NotImplementedError
 
     @abstractmethod
-    def supersede(self, old_fact_id: str, new_fact: Fact) -> None:
+    def supersede(
+        self,
+        old_fact_id: str,
+        new_fact: Fact,
+        audits: list[AuditEvent] | None = None,
+    ) -> None:
         """旧正本を superseded として履歴へ退避し、新正本を active で登録する。
 
-        退避と登録は不可分(片側だけの状態を残さない)。
+        退避・登録・監査記録(audits 指定時)は不可分(片側だけの状態を残さない)。
         """
         raise NotImplementedError
 
@@ -70,7 +81,13 @@ class StorePort(ABC):
 
     @abstractmethod
     def get_active(self, fact_id: str) -> Fact | None:
-        """指定カードが今 active ならその Fact を返す(なければ None)。"""
+        """指定カードが正本(active)に存在すればその Fact を返す(なければ None)。
+
+        注意: 有効期限(valid_until)は判定しない。期限判定は参照系
+        (find_active)の責務であり、本メソッドは置換(--revises)や履歴表示の
+        ために「期限切れだが正本に残っているカード」も返す(期限切れ正本の
+        置換・棚卸しを可能にするための意図的な契約)。
+        """
         raise NotImplementedError
 
     # ---- 履歴(UC-4) ----

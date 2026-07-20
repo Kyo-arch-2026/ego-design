@@ -83,7 +83,12 @@ class ClaudeLLMAdapter(LLMPort):
             method="POST",
         )
         with urllib.request.urlopen(request, timeout=self._timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+            raw = response.read()
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as exc:
+            # 200 応答でも本文が壊れているケース。技術例外を素通しさせない(規約2)
+            raise LlmError(f"LLM 応答の解析に失敗しました: {exc}") from exc
 
     # ---- 応答 → ドメイン型変換 ----
 

@@ -37,7 +37,7 @@ ego/
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e ".[dev]" || .venv/bin/pip install -e . pytest
+.venv/bin/pip install -e ".[dev]"
 export ANTHROPIC_API_KEY=sk-ant-...   # 秘密情報は環境変数で注入
 ```
 
