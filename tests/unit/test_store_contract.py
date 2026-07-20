@@ -212,3 +212,25 @@ def test_audit_is_atomic_with_state_change(store):
     recorded_ids = {e.log_id for e in store.get_audit_events()}
     assert not recorded_ids & {e.log_id for e in doomed_events}
     assert store.get_active(fact.id) is not None  # 状態も不変
+
+
+def test_audit_insert_failure_rolls_back_state_change(store):
+    """レビュー指摘対応: 監査記録側が失敗した場合も状態変更ごとロールバックされる。"""
+    existing = AuditEvent(
+        log_id="fixed-log-id", event_type="register", target_id="x", actor="system"
+    )
+    store.append_audit(existing)
+
+    fact = make_candidate()
+    store.save_candidate(fact)
+    duplicate = AuditEvent(
+        log_id="fixed-log-id",  # 主キー衝突で監査 INSERT を失敗させる
+        event_type="approve",
+        target_id=fact.id,
+        actor="human",
+    )
+    with pytest.raises(StoreError):
+        store.promote_to_active(fact.id, audit=duplicate)
+
+    assert store.get_active(fact.id) is None          # 正本化もロールバック
+    assert len(store.get_audit_events()) == 1         # 監査も増えていない
